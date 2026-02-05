@@ -5,35 +5,11 @@ using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
-using static LevelLoader;
 
 public struct Triangle
 {
     public float3 v0, v1, v2;
     public float3 uv0, uv1, uv2;
-};
-
-public struct RawTriangles
-{
-    public int triangleStartIndex;
-    public int triangleCount;
-
-    public int planeStartIndex;
-    public int planeCount;
-};
-
-public struct RawPortal
-{
-    public int edgeStartIndex;
-    public int edgeCount;
-
-    public int connectedSectorId;
-    public int sectorId;
-
-    public int currentPlaneStartIndex;
-    public int currentPlaneCount;
-
-    public int portalContact;
 };
 
 public struct MathematicalPlane
@@ -76,6 +52,31 @@ public struct SectorMeta
     public int sectorId;
 };
 
+public struct TrianglesMeta
+{
+    public int triangleStartIndex;
+    public int triangleCount;
+
+    public int planeStartIndex;
+    public int planeCount;
+
+    public int sectorId;
+};
+
+public struct PortalMeta
+{
+    public int edgeStartIndex;
+    public int edgeCount;
+
+    public int connectedSectorId;
+    public int sectorId;
+
+    public int planeStartIndex;
+    public int planeCount;
+
+    public int portalContact;
+};
+
 [BurstCompile]
 public struct SectorsJob : IJobParallelFor
 {
@@ -90,16 +91,16 @@ public struct SectorsJob : IJobParallelFor
     [ReadOnly] public NativeArray<SectorMeta> contains;
     [ReadOnly] public NativeArray<MathematicalPlane> planes;
 
-    public NativeList<RawTriangles>.ParallelWriter rawTriangles;
-    public NativeList<RawPortal>.ParallelWriter rawPortals;
+    public NativeList<TrianglesMeta>.ParallelWriter rawTriangles;
+    public NativeList<PortalMeta>.ParallelWriter rawPortals;
 
     public void Execute(int index)
     {
         SectorMeta sector = currentSectors[index];
 
-        for (int p = sector.polygonStartIndex; p < sector.polygonStartIndex + sector.polygonCount; p++)
+        for (int a = sector.polygonStartIndex; a < sector.polygonStartIndex + sector.polygonCount; a++)
         {
-            PolygonMeta polygon = polygons[p];
+            PolygonMeta polygon = polygons[a];
 
             float planeDistance = math.dot(planes[polygon.plane].normal, point) + planes[polygon.plane].distance;
 
@@ -112,13 +113,15 @@ public struct SectorsJob : IJobParallelFor
 
             if (connectedsector == -1)
             {
-                rawTriangles.AddNoResize(new RawTriangles
+                rawTriangles.AddNoResize(new TrianglesMeta
                 {
                     triangleStartIndex = polygon.triangleStartIndex,
                     triangleCount = polygon.triangleCount,
 
                     planeStartIndex = sector.planeStartIndex,
-                    planeCount = sector.planeCount
+                    planeCount = sector.planeCount,
+
+                    sectorId = sector.sectorId
                 });
 
                 continue;
@@ -126,21 +129,18 @@ public struct SectorsJob : IJobParallelFor
 
             SectorMeta sectorpolygon = sectors[connectedsector];
 
-            int connectedstart = sectorpolygon.polygonStartIndex;
-            int connectedcount = sectorpolygon.polygonCount;
-
             int contact = 1;
 
-            for (int g = 0; g < contains.Length; g++)
+            for (int b = 0; b < contains.Length; b++)
             {
-                if (contains[g].sectorId == sectorpolygon.sectorId)
+                if (contains[b].sectorId == sectorpolygon.sectorId)
                 {
                     contact = 0;
                     break;
                 }
             }
 
-            rawPortals.AddNoResize(new RawPortal
+            rawPortals.AddNoResize(new PortalMeta
             {
                 edgeStartIndex = polygon.edgeStartIndex,
                 edgeCount = polygon.edgeCount,
@@ -148,8 +148,8 @@ public struct SectorsJob : IJobParallelFor
                 connectedSectorId = polygon.connectedSectorId,
                 sectorId = polygon.sectorId,
 
-                currentPlaneStartIndex = sector.planeStartIndex,
-                currentPlaneCount = sector.planeCount,
+                planeStartIndex = sector.planeStartIndex,
+                planeCount = sector.planeCount,
 
                 portalContact = contact
             });
@@ -160,7 +160,7 @@ public struct SectorsJob : IJobParallelFor
 [BurstCompile]
 public struct ClipTrianglesJob : IJobParallelFor
 {
-    [ReadOnly] public NativeArray<RawTriangles> rawTriangles;
+    [ReadOnly] public NativeArray<TrianglesMeta> rawTriangles;
     [ReadOnly] public NativeArray<MathematicalPlane> currentFrustums;
     [ReadOnly] public NativeArray<float3> vertices;
     [ReadOnly] public NativeArray<float3> textures;
@@ -187,52 +187,52 @@ public struct ClipTrianglesJob : IJobParallelFor
     {
         int baseIndex = index * 256;
 
-        RawTriangles rt = rawTriangles[index];
+        TrianglesMeta tm = rawTriangles[index];
 
-        for (int b = rt.triangleStartIndex; b < rt.triangleStartIndex + rt.triangleCount; b += 3)
+        for (int a = tm.triangleStartIndex; a < tm.triangleStartIndex + tm.triangleCount; a += 3)
         {
             int processverticescount = 0;
             int processtexturescount = 0;
             int processboolcount = 0;
 
-            processvertices[baseIndex + processverticescount] = vertices[triangles[b]];
-            processvertices[baseIndex + processverticescount + 1] = vertices[triangles[b + 1]];
-            processvertices[baseIndex + processverticescount + 2] = vertices[triangles[b + 2]];
+            processvertices[baseIndex + processverticescount] = vertices[triangles[a]];
+            processvertices[baseIndex + processverticescount + 1] = vertices[triangles[a + 1]];
+            processvertices[baseIndex + processverticescount + 2] = vertices[triangles[a + 2]];
             processverticescount += 3;
-            processtextures[baseIndex + processtexturescount] = textures[triangles[b]];
-            processtextures[baseIndex + processtexturescount + 1] = textures[triangles[b + 1]];
-            processtextures[baseIndex + processtexturescount + 2] = textures[triangles[b + 2]];
+            processtextures[baseIndex + processtexturescount] = textures[triangles[a]];
+            processtextures[baseIndex + processtexturescount + 1] = textures[triangles[a + 1]];
+            processtextures[baseIndex + processtexturescount + 2] = textures[triangles[a + 2]];
             processtexturescount += 3;
             processbool[baseIndex + processboolcount] = true;
             processbool[baseIndex + processboolcount + 1] = true;
             processbool[baseIndex + processboolcount + 2] = true;
             processboolcount += 3;
 
-            for (int c = rt.planeStartIndex; c < rt.planeStartIndex + rt.planeCount; c++)
+            for (int b = tm.planeStartIndex; b < tm.planeStartIndex + tm.planeCount; b++)
             {
                 int addTriangles = 0;
 
                 int temporaryverticescount = 0;
                 int temporarytexturescount = 0;
 
-                for (int d = baseIndex; d < baseIndex + processverticescount; d += 3)
+                for (int c = baseIndex; c < baseIndex + processverticescount; c += 3)
                 {
-                    if (processbool[d] == false && processbool[d + 1] == false && processbool[d + 2] == false)
+                    if (processbool[c] == false && processbool[c + 1] == false && processbool[c + 2] == false)
                     {
                         continue;
                     }
 
-                    float3 v0 = processvertices[d];
-                    float3 v1 = processvertices[d + 1];
-                    float3 v2 = processvertices[d + 2];
+                    float3 v0 = processvertices[c];
+                    float3 v1 = processvertices[c + 1];
+                    float3 v2 = processvertices[c + 2];
 
-                    float3 uv0 = processtextures[d];
-                    float3 uv1 = processtextures[d + 1];
-                    float3 uv2 = processtextures[d + 2];
+                    float3 uv0 = processtextures[c];
+                    float3 uv1 = processtextures[c + 1];
+                    float3 uv2 = processtextures[c + 2];
 
-                    float d0 = math.dot(currentFrustums[c].normal, v0) + currentFrustums[c].distance;
-                    float d1 = math.dot(currentFrustums[c].normal, v1) + currentFrustums[c].distance;
-                    float d2 = math.dot(currentFrustums[c].normal, v2) + currentFrustums[c].distance;
+                    float d0 = math.dot(currentFrustums[b].normal, v0) + currentFrustums[b].distance;
+                    float d1 = math.dot(currentFrustums[b].normal, v1) + currentFrustums[b].distance;
+                    float d2 = math.dot(currentFrustums[b].normal, v2) + currentFrustums[b].distance;
 
                     bool b0 = d0 >= 0;
                     bool b1 = d1 >= 0;
@@ -296,9 +296,9 @@ public struct ClipTrianglesJob : IJobParallelFor
                         temporarytextures[baseIndex + temporarytexturescount + 1] = math.lerp(inUV, outUV1, t1);
                         temporarytextures[baseIndex + temporarytexturescount + 2] = math.lerp(inUV, outUV2, t2);
                         temporarytexturescount += 3;
-                        processbool[d] = false;
-                        processbool[d + 1] = false;
-                        processbool[d + 2] = false;
+                        processbool[c] = false;
+                        processbool[c + 1] = false;
+                        processbool[c + 2] = false;
 
                         addTriangles += 1;
                     }
@@ -370,31 +370,31 @@ public struct ClipTrianglesJob : IJobParallelFor
                         temporarytextures[baseIndex + temporarytexturescount + 1] = inUV2;
                         temporarytextures[baseIndex + temporarytexturescount + 2] = uvB;
                         temporarytexturescount += 3;
-                        processbool[d] = false;
-                        processbool[d + 1] = false;
-                        processbool[d + 2] = false;
+                        processbool[c] = false;
+                        processbool[c + 1] = false;
+                        processbool[c + 2] = false;
 
                         addTriangles += 2;
                     }
                     else
                     {
-                        processbool[d] = false;
-                        processbool[d + 1] = false;
-                        processbool[d + 2] = false;
+                        processbool[c] = false;
+                        processbool[c + 1] = false;
+                        processbool[c + 2] = false;
                     }
                 }
 
                 if (addTriangles > 0)
                 {
-                    for (int e = baseIndex; e < baseIndex + temporaryverticescount; e += 3)
+                    for (int d = baseIndex; d < baseIndex + temporaryverticescount; d += 3)
                     {
-                        processvertices[baseIndex + processverticescount] = temporaryvertices[e];
-                        processvertices[baseIndex + processverticescount + 1] = temporaryvertices[e + 1];
-                        processvertices[baseIndex + processverticescount + 2] = temporaryvertices[e + 2];
+                        processvertices[baseIndex + processverticescount] = temporaryvertices[d];
+                        processvertices[baseIndex + processverticescount + 1] = temporaryvertices[d + 1];
+                        processvertices[baseIndex + processverticescount + 2] = temporaryvertices[d + 2];
                         processverticescount += 3;
-                        processtextures[baseIndex + processtexturescount] = temporarytextures[e];
-                        processtextures[baseIndex + processtexturescount + 1] = temporarytextures[e + 1];
-                        processtextures[baseIndex + processtexturescount + 2] = temporarytextures[e + 2];
+                        processtextures[baseIndex + processtexturescount] = temporarytextures[d];
+                        processtextures[baseIndex + processtexturescount + 1] = temporarytextures[d + 1];
+                        processtextures[baseIndex + processtexturescount + 2] = temporarytextures[d + 2];
                         processtexturescount += 3;
                         processbool[baseIndex + processboolcount] = true;
                         processbool[baseIndex + processboolcount + 1] = true;
@@ -404,18 +404,18 @@ public struct ClipTrianglesJob : IJobParallelFor
                 }
             }
 
-            for (int f = baseIndex; f < baseIndex + processverticescount; f += 3)
+            for (int e = baseIndex; e < baseIndex + processverticescount; e += 3)
             {
-                if (processbool[f] == true && processbool[f + 1] == true && processbool[f + 2] == true)
+                if (processbool[e] == true && processbool[e + 1] == true && processbool[e + 2] == true)
                 {
                     finalTriangles.AddNoResize(new Triangle
                     {
-                        v0 = processvertices[f],
-                        v1 = processvertices[f + 1],
-                        v2 = processvertices[f + 2],
-                        uv0 = processtextures[f],
-                        uv1 = processtextures[f + 1],
-                        uv2 = processtextures[f + 2]
+                        v0 = processvertices[e],
+                        v1 = processvertices[e + 1],
+                        v2 = processvertices[e + 2],
+                        uv0 = processtextures[e],
+                        uv1 = processtextures[e + 1],
+                        uv2 = processtextures[e + 2]
                     });
                 }
             }
@@ -426,7 +426,7 @@ public struct ClipTrianglesJob : IJobParallelFor
 [BurstCompile]
 public struct ClipPortalsJob : IJobParallelFor
 {
-    [ReadOnly] public NativeArray<RawPortal> rawPortals;
+    [ReadOnly] public NativeArray<PortalMeta> rawPortals;
     [ReadOnly] public NativeArray<MathematicalPlane> currentFrustums;
     [ReadOnly] public NativeArray<MathematicalPlane> originalFrustum;
     [ReadOnly] public NativeArray<float3> vertices;
@@ -453,11 +453,9 @@ public struct ClipPortalsJob : IJobParallelFor
 
     public void Execute(int index)
     {
-        int planeStartIndex = 0;
-
         int baseIndex = index * 256;
 
-        RawPortal portal = rawPortals[index];
+        PortalMeta portal = rawPortals[index];
 
         int connectedsector = portal.connectedSectorId;
 
@@ -468,14 +466,12 @@ public struct ClipPortalsJob : IJobParallelFor
 
         if (portal.portalContact == 0)
         {
-            int contactIndex = baseIndex + planeStartIndex;
+            int contactIndex = baseIndex;
 
             nextFrustums[contactIndex] = originalFrustum[0];
             nextFrustums[contactIndex + 1] = originalFrustum[1];
             nextFrustums[contactIndex + 2] = originalFrustum[2];
             nextFrustums[contactIndex + 3] = originalFrustum[3];
-
-            planeStartIndex += 4;
 
             nextSectors.AddNoResize(new SectorMeta
             {
@@ -493,17 +489,17 @@ public struct ClipPortalsJob : IJobParallelFor
         int processedgescount = 0;
         int processedgesboolcount = 0;
 
-        for (int h = portal.edgeStartIndex; h < portal.edgeStartIndex + portal.edgeCount; h += 2)
+        for (int a = portal.edgeStartIndex; a < portal.edgeStartIndex + portal.edgeCount; a += 2)
         {
-            processedgevertices[baseIndex + processedgescount] = vertices[edges[h]];
-            processedgevertices[baseIndex + processedgescount + 1] = vertices[edges[h + 1]];
+            processedgevertices[baseIndex + processedgescount] = vertices[edges[a]];
+            processedgevertices[baseIndex + processedgescount + 1] = vertices[edges[a + 1]];
             processedgescount += 2;
             processedgebool[baseIndex + processedgesboolcount] = true;
             processedgebool[baseIndex + processedgesboolcount + 1] = true;
             processedgesboolcount += 2;
         }
 
-        for (int i = portal.currentPlaneStartIndex; i < portal.currentPlaneStartIndex + portal.currentPlaneCount; i++)
+        for (int b = portal.planeStartIndex; b < portal.planeStartIndex + portal.planeCount; b++)
         {
             int intersection = 0;
             int temporaryverticescount = 0;
@@ -511,18 +507,18 @@ public struct ClipPortalsJob : IJobParallelFor
             float3 intersectionPoint1 = float3.zero;
             float3 intersectionPoint2 = float3.zero;
 
-            for (int j = baseIndex; j < baseIndex + processedgescount; j += 2)
+            for (int c = baseIndex; c < baseIndex + processedgescount; c += 2)
             {
-                if (processedgebool[j] == false && processedgebool[j + 1] == false)
+                if (processedgebool[c] == false && processedgebool[c + 1] == false)
                 {
                     continue;
                 }
 
-                float3 p1 = processedgevertices[j];
-                float3 p2 = processedgevertices[j + 1];
+                float3 p1 = processedgevertices[c];
+                float3 p2 = processedgevertices[c + 1];
 
-                float d1 = math.dot(currentFrustums[i].normal, p1) + currentFrustums[i].distance;
-                float d2 = math.dot(currentFrustums[i].normal, p2) + currentFrustums[i].distance;
+                float d1 = math.dot(currentFrustums[b].normal, p1) + currentFrustums[b].distance;
+                float d2 = math.dot(currentFrustums[b].normal, p2) + currentFrustums[b].distance;
 
                 bool b0 = d1 >= 0;
                 bool b1 = d2 >= 0;
@@ -557,24 +553,24 @@ public struct ClipPortalsJob : IJobParallelFor
                     temporaryedgevertices[baseIndex + temporaryverticescount + 1] = point2;
                     temporaryverticescount += 2;
 
-                    processedgebool[j] = false;
-                    processedgebool[j + 1] = false;
+                    processedgebool[c] = false;
+                    processedgebool[c + 1] = false;
 
                     intersection += 1;
                 }
                 else
                 {
-                    processedgebool[j] = false;
-                    processedgebool[j + 1] = false;
+                    processedgebool[c] = false;
+                    processedgebool[c + 1] = false;
                 }
             }
 
             if (intersection == 2)
             {
-                for (int k = baseIndex; k < baseIndex + temporaryverticescount; k += 2)
+                for (int d = baseIndex; d < baseIndex + temporaryverticescount; d += 2)
                 {
-                    processedgevertices[baseIndex + processedgescount] = temporaryedgevertices[k];
-                    processedgevertices[baseIndex + processedgescount + 1] = temporaryedgevertices[k + 1];
+                    processedgevertices[baseIndex + processedgescount] = temporaryedgevertices[d];
+                    processedgevertices[baseIndex + processedgescount + 1] = temporaryedgevertices[d + 1];
                     processedgescount += 2;
                     processedgebool[baseIndex + processedgesboolcount] = true;
                     processedgebool[baseIndex + processedgesboolcount + 1] = true;
@@ -590,12 +586,12 @@ public struct ClipPortalsJob : IJobParallelFor
             }
         }
 
-        for (int l = baseIndex; l < baseIndex + processedgescount; l += 2)
+        for (int e = baseIndex; e < baseIndex + processedgescount; e += 2)
         {
-            if (processedgebool[l] == true && processedgebool[l + 1] == true)
+            if (processedgebool[e] == true && processedgebool[e + 1] == true)
             {
-                outedges[baseIndex + outedgescount] = processedgevertices[l];
-                outedges[baseIndex + outedgescount + 1] = processedgevertices[l + 1];
+                outedges[baseIndex + outedgescount] = processedgevertices[e];
+                outedges[baseIndex + outedgescount + 1] = processedgevertices[e + 1];
                 outedgescount += 2;
             }
         }
@@ -605,15 +601,15 @@ public struct ClipPortalsJob : IJobParallelFor
             return;
         }
 
-        int StartIndex = baseIndex + planeStartIndex;
+        int StartIndex = baseIndex;
 
         int IndexCount = 0;
 
-        for (int m = baseIndex; m < baseIndex + outedgescount; m += 2)
+        for (int f = baseIndex; f < baseIndex + outedgescount; f += 2)
         {
-            float3 p1 = outedges[m];
-            float3 p2 = outedges[m + 1];
-            float3 normal = math.cross(p1 - p2, point - p2);
+            float3 p0 = outedges[f];
+            float3 p1 = outedges[f + 1];
+            float3 normal = math.cross(p0 - p1, point - p1);
             float magnitude = math.length(normal);
 
             if (magnitude < 0.01f)
@@ -623,8 +619,9 @@ public struct ClipPortalsJob : IJobParallelFor
 
             float3 normalized = normal / magnitude;
 
-            nextFrustums[StartIndex + IndexCount] = new MathematicalPlane { normal = normalized, distance = -math.dot(normalized, p1) };
-            planeStartIndex += 1;
+            float distance = -math.dot(normalized, p0);
+
+            nextFrustums[StartIndex + IndexCount] = new MathematicalPlane { normal = normalized, distance = distance };
             IndexCount += 1;
         }
 
@@ -685,8 +682,8 @@ public class LevelLoader : MonoBehaviour
     private NativeList<SectorMeta> sideA;
     private NativeList<SectorMeta> sideB;
     private NativeList<Triangle> outTriangles;
-    private NativeList<RawTriangles> rawTriangles;
-    private NativeList<RawPortal> rawPortals;
+    private NativeList<TrianglesMeta> rawTriangles;
+    private NativeList<PortalMeta> rawPortals;
     private NativeList<SectorMeta> contains;
     private NativeList<SectorMeta> oldContains;
     private NativeList<MathematicalPlane> OriginalFrustum;
@@ -825,18 +822,14 @@ public class LevelLoader : MonoBehaviour
         outEdges = new NativeArray<float3>((LevelLists.sectors.Length * 32) * 256, Allocator.Persistent);
         planeA = new NativeArray<MathematicalPlane>((LevelLists.sectors.Length * 32) * 256, Allocator.Persistent);
         planeB = new NativeArray<MathematicalPlane>((LevelLists.sectors.Length * 32) * 256, Allocator.Persistent);
-
         contains = new NativeList<SectorMeta>(Allocator.Persistent);
         oldContains = new NativeList<SectorMeta>(Allocator.Persistent);
-
         sideA = new NativeList<SectorMeta>(LevelLists.sectors.Length * 32, Allocator.Persistent);
         sideB = new NativeList<SectorMeta>(LevelLists.sectors.Length * 32, Allocator.Persistent);
-
         outTriangles = new NativeList<Triangle>((LevelLists.sectors.Length * 32) * 128, Allocator.Persistent);
         OriginalFrustum = new NativeList<MathematicalPlane>(6, Allocator.Persistent);
-
-        rawTriangles = new NativeList<RawTriangles>((LevelLists.sectors.Length * 32) * 128, Allocator.Persistent);
-        rawPortals = new NativeList<RawPortal>((LevelLists.sectors.Length * 32) * 128, Allocator.Persistent);
+        rawTriangles = new NativeList<TrianglesMeta>(LevelLists.polygons.Length * 32, Allocator.Persistent);
+        rawPortals = new NativeList<PortalMeta>(LevelLists.polygons.Length * 32, Allocator.Persistent);
     }
 
 void FixedUpdate()
@@ -1203,18 +1196,18 @@ void FixedUpdate()
 
         sideA.Add(ASector);
 
-        NativeList<SectorMeta> current = sideA;
-        NativeList<SectorMeta> next = sideB;
-        NativeArray<MathematicalPlane> currentFrustuns = planeA;
+        NativeList<SectorMeta> currentSectors = sideA;
+        NativeList<SectorMeta> nextSectors = sideB;
+        NativeArray<MathematicalPlane> currentFrustums = planeA;
         NativeArray<MathematicalPlane> nextFrustums = planeB;
 
-        while (current.Length > 0)
+        while (currentSectors.Length > 0)
         {
-            next.Clear();
+            nextSectors.Clear();
             rawTriangles.Clear();
             rawPortals.Clear();
 
-            var h1 = new SectorsJob
+            JobHandle h1 = new SectorsJob
             {
                 point = CamPoint,
                 vertices = LevelLists.vertices.AsDeferredJobArray(),
@@ -1225,19 +1218,20 @@ void FixedUpdate()
                 polygons = LevelLists.polygons.AsDeferredJobArray(),
                 contains = contains.AsDeferredJobArray(),
                 sectors = LevelLists.sectors.AsDeferredJobArray(),
-                currentSectors = current.AsDeferredJobArray(),
+                currentSectors = currentSectors.AsDeferredJobArray(),
                 rawPortals = rawPortals.AsParallelWriter(),
                 rawTriangles = rawTriangles.AsParallelWriter()
-            }.Schedule(current.Length, 32);
+            }.Schedule(currentSectors.Length, 32);
+
             h1.Complete();
 
-            var h2 = new ClipTrianglesJob 
+            JobHandle h2 = new ClipTrianglesJob 
             {
                 rawTriangles = rawTriangles.AsDeferredJobArray(),
                 vertices = LevelLists.vertices.AsDeferredJobArray(),
                 textures = LevelLists.textures.AsDeferredJobArray(),
                 triangles = LevelLists.triangles.AsDeferredJobArray(),
-                currentFrustums = currentFrustuns,
+                currentFrustums = currentFrustums,
                 processvertices = processvertices,
                 processtextures = processtextures,
                 processbool = processbool,
@@ -1246,7 +1240,7 @@ void FixedUpdate()
                 finalTriangles = outTriangles.AsParallelWriter()
             }.Schedule(rawTriangles.Length, 64);
 
-            var h3 = new ClipPortalsJob 
+            JobHandle h3 = new ClipPortalsJob 
             {
                 rawPortals = rawPortals.AsDeferredJobArray(),
                 point = CamPoint,
@@ -1258,9 +1252,9 @@ void FixedUpdate()
                 processedgebool = processedgebool,
                 temporaryedgevertices = temporaryedgevertices,
                 processedgevertices = processedgevertices,
-                currentFrustums = currentFrustuns,
+                currentFrustums = currentFrustums,
                 nextFrustums = nextFrustums,
-                nextSectors = next.AsParallelWriter()
+                nextSectors = nextSectors.AsParallelWriter()
             }.Schedule(rawPortals.Length, 64);
 
             JobHandle.CombineDependencies(h2, h3).Complete();
@@ -1269,16 +1263,16 @@ void FixedUpdate()
 
             if (jobsCompleted % 2 == 0)
             {
-                current = sideA;
-                next = sideB;
-                currentFrustuns = planeA;
+                currentSectors = sideA;
+                nextSectors = sideB;
+                currentFrustums = planeA;
                 nextFrustums = planeB;
             }
             else
             {
-                current = sideB;
-                next = sideA;
-                currentFrustuns = planeB;
+                currentSectors = sideB;
+                nextSectors = sideA;
+                currentFrustums = planeB;
                 nextFrustums = planeA;
             }
         }

@@ -1,3 +1,5 @@
+map-clear.txt is a level from Bisqwit's portal rendering tutorial video on YouTube.
+
 Put map-clear.txt in the Resources folder.
 
 Change the name to map-clear in the game loop object to use map-clear.txt in the Resources folder.
