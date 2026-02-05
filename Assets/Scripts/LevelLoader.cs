@@ -65,6 +65,9 @@ public struct TrianglesMeta
 
 public struct PortalMeta
 {
+    public int polygonStartIndex;
+    public int polygonCount;
+
     public int edgeStartIndex;
     public int edgeCount;
 
@@ -83,10 +86,6 @@ public struct SectorsJob : IJobParallelFor
     [ReadOnly] public float3 point;
     [ReadOnly] public NativeArray<SectorMeta> currentSectors;
     [ReadOnly] public NativeArray<PolygonMeta> polygons;
-    [ReadOnly] public NativeArray<float3> vertices;
-    [ReadOnly] public NativeArray<float3> textures;
-    [ReadOnly] public NativeArray<int> triangles;
-    [ReadOnly] public NativeArray<int> edges;
     [ReadOnly] public NativeArray<SectorMeta> sectors;
     [ReadOnly] public NativeArray<SectorMeta> contains;
     [ReadOnly] public NativeArray<MathematicalPlane> planes;
@@ -121,7 +120,7 @@ public struct SectorsJob : IJobParallelFor
                     planeStartIndex = sector.planeStartIndex,
                     planeCount = sector.planeCount,
 
-                    sectorId = sector.sectorId
+                    sectorId = polygon.sectorId
                 });
 
                 continue;
@@ -142,6 +141,9 @@ public struct SectorsJob : IJobParallelFor
 
             rawPortals.AddNoResize(new PortalMeta
             {
+                polygonStartIndex = sectorpolygon.polygonStartIndex,
+                polygonCount = sectorpolygon.polygonCount,
+
                 edgeStartIndex = polygon.edgeStartIndex,
                 edgeCount = polygon.edgeCount,
 
@@ -431,7 +433,6 @@ public struct ClipPortalsJob : IJobParallelFor
     [ReadOnly] public NativeArray<MathematicalPlane> originalFrustum;
     [ReadOnly] public NativeArray<float3> vertices;
     [ReadOnly] public NativeArray<int> edges;
-    [ReadOnly] public NativeArray<SectorMeta> sectors;
     [ReadOnly] public float3 point;
 
     [NativeDisableParallelForRestriction]
@@ -457,27 +458,22 @@ public struct ClipPortalsJob : IJobParallelFor
 
         PortalMeta portal = rawPortals[index];
 
+        int connectedstart = portal.polygonStartIndex;
+        int connectedcount = portal.polygonCount;
         int connectedsector = portal.connectedSectorId;
-
-        SectorMeta sectorportal = sectors[connectedsector];
-
-        int connectedstart = sectorportal.polygonStartIndex;
-        int connectedcount = sectorportal.polygonCount;
 
         if (portal.portalContact == 0)
         {
-            int contactIndex = baseIndex;
-
-            nextFrustums[contactIndex] = originalFrustum[0];
-            nextFrustums[contactIndex + 1] = originalFrustum[1];
-            nextFrustums[contactIndex + 2] = originalFrustum[2];
-            nextFrustums[contactIndex + 3] = originalFrustum[3];
+            nextFrustums[baseIndex] = originalFrustum[0];
+            nextFrustums[baseIndex + 1] = originalFrustum[1];
+            nextFrustums[baseIndex + 2] = originalFrustum[2];
+            nextFrustums[baseIndex + 3] = originalFrustum[3];
 
             nextSectors.AddNoResize(new SectorMeta
             {
                 polygonStartIndex = connectedstart,
                 polygonCount = connectedcount,
-                planeStartIndex = contactIndex,
+                planeStartIndex = baseIndex,
                 planeCount = originalFrustum.Length,
                 sectorId = connectedsector
             });
@@ -601,9 +597,7 @@ public struct ClipPortalsJob : IJobParallelFor
             return;
         }
 
-        int StartIndex = baseIndex;
-
-        int IndexCount = 0;
+        int indexCount = 0;
 
         for (int f = baseIndex; f < baseIndex + outedgescount; f += 2)
         {
@@ -621,16 +615,16 @@ public struct ClipPortalsJob : IJobParallelFor
 
             float distance = -math.dot(normalized, p0);
 
-            nextFrustums[StartIndex + IndexCount] = new MathematicalPlane { normal = normalized, distance = distance };
-            IndexCount += 1;
+            nextFrustums[baseIndex + indexCount] = new MathematicalPlane { normal = normalized, distance = distance };
+            indexCount += 1;
         }
 
         nextSectors.AddNoResize(new SectorMeta
         {
             polygonStartIndex = connectedstart,
             polygonCount = connectedcount,
-            planeStartIndex = StartIndex,
-            planeCount = IndexCount,
+            planeStartIndex = baseIndex,
+            planeCount = indexCount,
             sectorId = connectedsector
         });
     }
@@ -1210,10 +1204,6 @@ void FixedUpdate()
             JobHandle h1 = new SectorsJob
             {
                 point = CamPoint,
-                vertices = LevelLists.vertices.AsDeferredJobArray(),
-                textures = LevelLists.textures.AsDeferredJobArray(),
-                triangles = LevelLists.triangles.AsDeferredJobArray(),
-                edges = LevelLists.edges.AsDeferredJobArray(),
                 planes = LevelLists.planes.AsDeferredJobArray(),
                 polygons = LevelLists.polygons.AsDeferredJobArray(),
                 contains = contains.AsDeferredJobArray(),
@@ -1242,13 +1232,12 @@ void FixedUpdate()
 
             JobHandle h3 = new ClipPortalsJob 
             {
-                rawPortals = rawPortals.AsDeferredJobArray(),
                 point = CamPoint,
+                rawPortals = rawPortals.AsDeferredJobArray(),
                 vertices = LevelLists.vertices.AsDeferredJobArray(),
                 originalFrustum = OriginalFrustum.AsDeferredJobArray(),
                 outedges = outEdges,
                 edges = LevelLists.edges.AsDeferredJobArray(),
-                sectors = LevelLists.sectors.AsDeferredJobArray(),
                 processedgebool = processedgebool,
                 temporaryedgevertices = temporaryedgevertices,
                 processedgevertices = processedgevertices,
